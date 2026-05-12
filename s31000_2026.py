@@ -4,6 +4,8 @@
 # Program generuje losową sekwencję DNA, zapisuje ją w formacie FASTA,
 # wstawia imię użytkownika w losowym miejscu oraz wypisuje statystyki sekwencji.
 # Dodatkowo użytkownik może ustawić procentowy rozkład nukleotydów A, C, G, T.
+# Program posiada także tryb batch mode, czyli generowanie wielu sekwencji
+# i zapis ich do jednego pliku multi-FASTA.
 
 import random
 
@@ -180,6 +182,52 @@ def validate_sequence_id(prompt: str) -> str:
             return seq_id
 
 
+def create_batch_id(base_id: str, number: int) -> str:
+    """
+    Tworzy unikalne ID dla sekwencji w trybie batch.
+    Przykład: Seq + 1 -> Seq_001.
+    """
+    return f"{base_id}_{number:03d}"
+
+
+def generate_batch_fasta(batch_count: int,
+                         length: int,
+                         base_id: str,
+                         description: str,
+                         name: str,
+                         distribution: dict) -> tuple:
+    """
+    Generuje wiele sekwencji DNA i zwraca zawartość pliku multi-FASTA
+    oraz listę statystyk dla każdej sekwencji.
+
+    Każda sekwencja ma unikalne ID, np. Seq_001, Seq_002.
+    """
+    fasta_records = []
+    all_stats = []
+
+    for i in range(1, batch_count + 1):
+        current_id = create_batch_id(base_id, i)
+
+        dna_sequence = generate_sequence_with_distribution(length, distribution)
+
+        stats = calculate_stats(dna_sequence)
+
+        sequence_with_name = insert_name(dna_sequence, name)
+
+        fasta_record = format_fasta(current_id, description, sequence_with_name)
+
+        fasta_records.append(fasta_record)
+
+        all_stats.append({
+            "id": current_id,
+            "stats": stats
+        })
+
+    multi_fasta_content = "\n\n".join(fasta_records)
+
+    return multi_fasta_content, all_stats
+
+
 def save_to_file(filename: str, content: str) -> None:
     """
     Zapisuje podany tekst do pliku.
@@ -191,12 +239,12 @@ def save_to_file(filename: str, content: str) -> None:
 def main():
     """
     Główna funkcja programu.
-    Pobiera dane od użytkownika, generuje sekwencję,
+    Pobiera dane od użytkownika, generuje jedną lub wiele sekwencji,
     zapisuje plik FASTA i wypisuje statystyki.
     """
     length = validate_positive_int("Podaj długość sekwencji: ")
 
-    seq_id = validate_sequence_id("Podaj ID sekwencji: ")
+    seq_id = validate_sequence_id("Podaj bazowe ID sekwencji: ")
 
     description = input("Podaj opis sekwencji: ")
 
@@ -204,33 +252,52 @@ def main():
 
     distribution = get_nucleotide_distribution()
 
-    dna_sequence = generate_sequence_with_distribution(length, distribution)
+    batch_count = validate_positive_int(
+        "Podaj liczbę sekwencji do wygenerowania: ",
+        min_val=1,
+        max_val=1000
+    )
 
-    stats = calculate_stats(dna_sequence)
-
-    sequence_with_name = insert_name(dna_sequence, name)
-
-    fasta_content = format_fasta(seq_id, description, sequence_with_name)
+    fasta_content, all_stats = generate_batch_fasta(
+        batch_count,
+        length,
+        seq_id,
+        description,
+        name,
+        distribution
+    )
 
     filename = f"{seq_id}.fasta"
 
     save_to_file(filename, fasta_content)
 
     print()
-    print(f"Sekwencja zapisana do pliku: {filename}")
+    print(f"Sekwencje zapisane do pliku: {filename}")
     print()
     print("Zadany rozkład nukleotydów:")
     print(f"  A: {distribution['A']:.2f}%")
     print(f"  C: {distribution['C']:.2f}%")
     print(f"  G: {distribution['G']:.2f}%")
     print(f"  T: {distribution['T']:.2f}%")
+
     print()
-    print(f"Statystyki wygenerowanej sekwencji (n={length}):")
-    print(f"  A: {stats['A']:.2f}%")
-    print(f"  C: {stats['C']:.2f}%")
-    print(f"  G: {stats['G']:.2f}%")
-    print(f"  T: {stats['T']:.2f}%")
-    print(f"  GC-content: {stats['GC']:.2f}%")
+    print(f"Wygenerowano liczbę sekwencji: {batch_count}")
+    print(f"Długość każdej sekwencji biologicznej: {length}")
+
+    print()
+    print("Statystyki wygenerowanych sekwencji:")
+
+    for item in all_stats:
+        current_id = item["id"]
+        stats = item["stats"]
+
+        print()
+        print(f"Sekwencja: {current_id}")
+        print(f"  A: {stats['A']:.2f}%")
+        print(f"  C: {stats['C']:.2f}%")
+        print(f"  G: {stats['G']:.2f}%")
+        print(f"  T: {stats['T']:.2f}%")
+        print(f"  GC-content: {stats['GC']:.2f}%")
 
 
 if __name__ == "__main__":
