@@ -6,8 +6,11 @@
 # Dodatkowo użytkownik może ustawić procentowy rozkład nukleotydów A, C, G, T.
 # Program posiada także tryb batch mode, czyli generowanie wielu sekwencji
 # i zapis ich do jednego pliku multi-FASTA.
+# Program wykonuje także transkrypcję in silico, czyli tworzy sekwencję mRNA.
+# Program posiada walidator istniejącego pliku FASTA.
 
 import random
+import os
 
 
 def generate_sequence(length: int) -> str:
@@ -124,6 +127,20 @@ def insert_name(sequence: str, name: str) -> str:
     return sequence_with_name
 
 
+def transcribe_dna_to_mrna(sequence: str) -> str:
+    """
+    Wykonuje transkrypcję in silico.
+    Zamienia sekwencję DNA na mRNA poprzez zastąpienie T przez U.
+
+    Przykład:
+    DNA:  ATGC
+    mRNA: AUGC
+    """
+    mrna_sequence = sequence.replace("T", "U")
+
+    return mrna_sequence
+
+
 def format_fasta(seq_id: str, description: str,
                  sequence: str, line_width: int = 80) -> str:
     """
@@ -200,7 +217,9 @@ def generate_batch_fasta(batch_count: int,
     Generuje wiele sekwencji DNA i zwraca zawartość pliku multi-FASTA
     oraz listę statystyk dla każdej sekwencji.
 
-    Każda sekwencja ma unikalne ID, np. Seq_001, Seq_002.
+    Dla każdej sekwencji DNA tworzony jest także osobny rekord mRNA.
+    Każda sekwencja DNA ma ID, np. Seq_001.
+    Odpowiadająca jej sekwencja mRNA ma ID, np. Seq_001_mRNA.
     """
     fasta_records = []
     all_stats = []
@@ -214,9 +233,22 @@ def generate_batch_fasta(batch_count: int,
 
         sequence_with_name = insert_name(dna_sequence, name)
 
-        fasta_record = format_fasta(current_id, description, sequence_with_name)
+        dna_fasta_record = format_fasta(
+            current_id,
+            description,
+            sequence_with_name
+        )
 
-        fasta_records.append(fasta_record)
+        mrna_sequence = transcribe_dna_to_mrna(dna_sequence)
+
+        mrna_fasta_record = format_fasta(
+            current_id + "_mRNA",
+            "Sekwencja mRNA po transkrypcji in silico",
+            mrna_sequence
+        )
+
+        fasta_records.append(dna_fasta_record)
+        fasta_records.append(mrna_fasta_record)
 
         all_stats.append({
             "id": current_id,
@@ -236,11 +268,113 @@ def save_to_file(filename: str, content: str) -> None:
         file.write(content)
 
 
+def validate_fasta_file(filename: str, line_width: int = 80) -> list:
+    """
+    Sprawdza poprawność istniejącego pliku FASTA.
+
+    Walidowane elementy:
+    - czy plik istnieje,
+    - czy pierwszy niepusty wiersz jest nagłówkiem zaczynającym się od >,
+    - czy każda sekwencja ma nagłówek,
+    - czy znaki w sekwencji są dozwolone,
+    - czy linie sekwencji nie są dłuższe niż 80 znaków.
+
+    Funkcja zwraca listę znalezionych błędów.
+    Jeśli lista jest pusta, plik uznajemy za poprawny.
+    """
+    errors = []
+
+    allowed_chars = set("ACGTUacgtu")
+
+    if not os.path.exists(filename):
+        errors.append(f"Plik '{filename}' nie istnieje.")
+        return errors
+
+    with open(filename, "r", encoding="utf-8") as file:
+        lines = file.readlines()
+
+    if len(lines) == 0:
+        errors.append("Plik jest pusty.")
+        return errors
+
+    has_header = False
+    sequence_found_after_header = False
+    current_header = None
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+
+        if line == "":
+            continue
+
+        if line.startswith(">"):
+            has_header = True
+
+            if line == ">":
+                errors.append(f"Linia {line_number}: nagłówek FASTA nie zawiera ID.")
+
+            current_header = line
+            sequence_found_after_header = False
+
+        else:
+            if current_header is None:
+                errors.append(
+                    f"Linia {line_number}: sekwencja pojawia się przed pierwszym nagłówkiem FASTA."
+                )
+
+            if len(line) > line_width:
+                errors.append(
+                    f"Linia {line_number}: linia sekwencji ma {len(line)} znaków, "
+                    f"a maksymalnie może mieć {line_width}."
+                )
+
+            for char in line:
+                if char not in allowed_chars:
+                    errors.append(
+                        f"Linia {line_number}: niedozwolony znak w sekwencji: '{char}'."
+                    )
+
+            sequence_found_after_header = True
+
+    if not has_header:
+        errors.append("Brak nagłówka FASTA zaczynającego się od znaku '>'.")
+
+    if has_header and not sequence_found_after_header:
+        errors.append("Ostatni nagłówek FASTA nie ma podanej żadnej sekwencji.")
+
+    return errors
+
+
+def run_fasta_validator() -> None:
+    """
+    Pyta użytkownika, czy chce sprawdzić istniejący plik FASTA.
+    Jeśli tak, pobiera nazwę pliku, uruchamia walidator i wypisuje raport.
+    """
+    answer = input("Czy chcesz sprawdzić istniejący plik FASTA? (t/n): ")
+
+    if answer.lower() != "t":
+        return
+
+    filename = input("Podaj nazwę pliku FASTA do sprawdzenia: ")
+
+    errors = validate_fasta_file(filename)
+
+    print()
+    print("Raport walidacji pliku FASTA:")
+
+    if len(errors) == 0:
+        print("Plik FASTA jest poprawny.")
+    else:
+        print("Znaleziono błędy:")
+        for error in errors:
+            print(f"- {error}")
+
+
 def main():
     """
     Główna funkcja programu.
     Pobiera dane od użytkownika, generuje jedną lub wiele sekwencji,
-    zapisuje plik FASTA i wypisuje statystyki.
+    zapisuje plik FASTA, wypisuje statystyki i opcjonalnie waliduje plik FASTA.
     """
     length = validate_positive_int("Podaj długość sekwencji: ")
 
@@ -272,7 +406,7 @@ def main():
     save_to_file(filename, fasta_content)
 
     print()
-    print(f"Sekwencje zapisane do pliku: {filename}")
+    print(f"Sekwencje DNA oraz mRNA zapisane do pliku: {filename}")
     print()
     print("Zadany rozkład nukleotydów:")
     print(f"  A: {distribution['A']:.2f}%")
@@ -281,11 +415,12 @@ def main():
     print(f"  T: {distribution['T']:.2f}%")
 
     print()
-    print(f"Wygenerowano liczbę sekwencji: {batch_count}")
+    print(f"Wygenerowano liczbę sekwencji DNA: {batch_count}")
     print(f"Długość każdej sekwencji biologicznej: {length}")
+    print("Dla każdej sekwencji DNA dodano także rekord mRNA.")
 
     print()
-    print("Statystyki wygenerowanych sekwencji:")
+    print("Statystyki wygenerowanych sekwencji DNA:")
 
     for item in all_stats:
         current_id = item["id"]
@@ -298,6 +433,9 @@ def main():
         print(f"  G: {stats['G']:.2f}%")
         print(f"  T: {stats['T']:.2f}%")
         print(f"  GC-content: {stats['GC']:.2f}%")
+
+    print()
+    run_fasta_validator()
 
 
 if __name__ == "__main__":
